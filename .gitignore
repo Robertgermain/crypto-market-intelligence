@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+
+# Logs
+*.log
+
+# Testing / coverage
+.coverage
+htmlcov/
+
+# OS files
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
+
+# Node (frontend)
+node_modules/
+dist/
+build/
+
+# Docker
+*.pid
+
+# Misc
+*.sqlite3
