@@ -1,40 +1,70 @@
+# ----------------------
 # Python
+# ----------------------
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
 *.pyd
-*.pytest_cache/
 
-# Virtual environments
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# ----------------------
+# Virtual Environments
+# ----------------------
 .venv/
 venv/
 env/
 
-# Environment variables
+# ----------------------
+# Environment Variables
+# ----------------------
 .env
 .env.*
 
+# ----------------------
 # Logs
+# ----------------------
 *.log
 
-# Testing / coverage
+# ----------------------
+# Testing / Coverage
+# ----------------------
+.pytest_cache/
 .coverage
 htmlcov/
 
-# OS files
+# ----------------------
+# Alembic
+# ----------------------
+alembic/__pycache__/
+
+# ----------------------
+# OS Files
+# ----------------------
 .DS_Store
 
-# Editors
+# ----------------------
+# Editors / IDEs
+# ----------------------
 .vscode/
 .idea/
 
-# Node (frontend)
+# ----------------------
+# Frontend (React)
+# ----------------------
 node_modules/
 dist/
 build/
 
+# ----------------------
 # Docker
+# ----------------------
 *.pid
 
+# ----------------------
 # Misc
+# ----------------------
 *.sqlite3
