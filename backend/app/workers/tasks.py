@@ -11,6 +11,8 @@ from app.services.signal_service import (
     create_signal,
 )
 
+from app.services.decision_service import generate_decision  # 🔥 NEW
+
 # Required for MA crossover (long_window + 1)
 MIN_REQUIRED_PRICES = 11
 
@@ -20,6 +22,7 @@ def process_price_data(asset_id: int):
     Worker task:
     - Load recent price history
     - Detect signals (multi-signal)
+    - Generate decision (NEW)
     - Deduplicate signals (per type + tolerance)
     - Persist signals
     """
@@ -45,7 +48,7 @@ def process_price_data(asset_id: int):
             db.query(MarketPrice)
             .filter(MarketPrice.asset_id == asset_id)
             .order_by(MarketPrice.observed_at.desc())
-            .limit(50)  # allow enough history for indicators
+            .limit(50)
             .all()
         )
 
@@ -68,12 +71,30 @@ def process_price_data(asset_id: int):
 
         if not signals:
             print("[INFO] No signals detected")
+
+            # 🔥 Even if no signals → still generate HOLD decision
+            decision = generate_decision([])
+            print(
+                f"[DECISION] {decision['decision']} "
+                f"(confidence={decision['confidence']}%, score={decision['score']})"
+            )
+
             return
 
         print(f"[DEBUG] Detected signals: {[s['signal_type'] for s in signals]}")
 
         # -----------------------------------
-        # 4. Load recent signals (for dedup)
+        # 4. Generate decision (🔥 NEW CORE FEATURE)
+        # -----------------------------------
+        decision = generate_decision(signals)
+
+        print(
+            f"[DECISION] {decision['decision']} "
+            f"(confidence={decision['confidence']}%, score={decision['score']})"
+        )
+
+        # -----------------------------------
+        # 5. Load recent signals (for dedup)
         # -----------------------------------
         recent_signals = (
             db.query(MarketSignal)
@@ -90,7 +111,7 @@ def process_price_data(asset_id: int):
                 last_signal_by_type[s.signal_type] = s
 
         # -----------------------------------
-        # 5. Persist signals with smart dedup
+        # 6. Persist signals with smart dedup
         # -----------------------------------
         created_any = False
 
@@ -115,7 +136,6 @@ def process_price_data(asset_id: int):
                         continue
 
                 except Exception:
-                    # fallback safety
                     print(f"[SKIP] Duplicate consecutive signal: {signal_type}")
                     continue
 
