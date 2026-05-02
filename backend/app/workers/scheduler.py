@@ -4,7 +4,7 @@ from rq_scheduler import Scheduler
 from redis import Redis
 
 from app.core.config import settings
-from app.workers.tasks import process_price_data
+from app.workers.pipeline import run_pipeline
 
 
 def get_redis_connection():
@@ -21,40 +21,30 @@ def main():
 
     print("[INFO] Scheduler started...")
 
-    start_time = datetime.now(timezone.utc) + timedelta(seconds=1)
+    start_time = datetime.now(timezone.utc) + timedelta(seconds=2)
 
+    # -----------------------------------
+    # Clear old jobs
+    # -----------------------------------
     for job in scheduler.get_jobs():
         scheduler.cancel(job)
 
     print("[INFO] Cleared old scheduled jobs")
 
     # -----------------------------------
-    # Schedule Bitcoin
+    # Schedule FULL pipeline (every 60s)
     # -----------------------------------
     scheduler.schedule(
         scheduled_time=start_time,
-        func=process_price_data,
-        args=[1],
-        interval=30,
+        func=run_pipeline,
+        interval=60,
         repeat=None,
-        id="scheduler_bitcoin"
+        id="market_pipeline"
     )
 
-    # -----------------------------------
-    # Schedule Ethereum
-    # -----------------------------------
-    scheduler.schedule(
-        scheduled_time=start_time,
-        func=process_price_data,
-        args=[2],
-        interval=30,
-        repeat=None,
-        id="scheduler_ethereum"
-    )
+    print("[INFO] Pipeline scheduled successfully")
 
-    print("[INFO] Jobs scheduled successfully")
-
-    # Keep process alive
+    # Keep alive
     while True:
         pass
 

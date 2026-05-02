@@ -1,16 +1,16 @@
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from app.models.asset import Asset
 from app.models.market_price import MarketPrice
 from app.integrations.coingecko import fetch_market_prices
-from app.core.redis import task_queue
 
 
 def ingest_market_data(db: Session, assets: list[str]):
     """
-    Fetch market data → store in DB → enqueue processing job
+    Fetch market data → store in DB
+    (NO QUEUE LOGIC HERE)
     """
 
     data = fetch_market_prices(assets)
@@ -29,7 +29,7 @@ def ingest_market_data(db: Session, assets: list[str]):
         market_price = MarketPrice(
             asset_id=asset.id,
             price_usd=price,
-            observed_at=datetime.utcnow()
+            observed_at=datetime.now(timezone.utc)  # modern + correct
         )
 
         db.add(market_price)
@@ -37,10 +37,5 @@ def ingest_market_data(db: Session, assets: list[str]):
         db.refresh(market_price)
 
         created.append(market_price)
-
-        task_queue.enqueue(
-            "app.workers.tasks.process_price_data",
-            asset.id
-        )
 
     return created
