@@ -9,6 +9,7 @@ from app.deps import get_db
 from app.services.market_data_service import ingest_market_data
 from app.models.market_price import MarketPrice
 from app.models.market_signal import MarketSignal
+from app.schemas.market import PricesResponse, SignalsResponse
 
 router = APIRouter()
 
@@ -72,6 +73,7 @@ def ingest_data(db: Session = Depends(get_db)):
 # --------------------------------------------------
 @router.get(
     "/prices",
+    response_model=PricesResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_prices(
@@ -162,6 +164,7 @@ def get_prices(
 # --------------------------------------------------
 @router.get(
     "/signals",
+    response_model=SignalsResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_signals(
