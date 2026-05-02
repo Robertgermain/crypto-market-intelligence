@@ -1,0 +1,4 @@
+# Signal Types (standardized, uppercase)
+PRICE_SPIKE = "PRICE_SPIKE"
+RSI_OVERBOUGHT = "RSI_OVERBOUGHT"
+RSI_OVERSOLD = "RSI_OVERSOLD"

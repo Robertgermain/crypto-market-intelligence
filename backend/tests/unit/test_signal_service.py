@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from app.models.market_price import MarketPrice
 from app.services.signal_service import detect_price_spike
+from app.core.constants import PRICE_SPIKE
 
 
 def create_price(price: str):
@@ -21,7 +22,7 @@ def test_price_spike_detected():
     result = detect_price_spike(prices, threshold=Decimal("5.0"))
 
     assert result is not None
-    assert result["signal_type"] == "price_spike"
+    assert result["signal_type"] == PRICE_SPIKE
 
 
 def test_no_spike_detected():

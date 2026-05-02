@@ -1,24 +1,27 @@
-from decimal import Decimal
-
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.database import SessionLocal
 from app.models.asset import Asset
 from app.models.market_price import MarketPrice
-from app.services.signal_service import detect_price_spike, create_signal
+from app.models.market_signal import MarketSignal
+
+from app.services.signal_service import (
+    detect_signals,
+    create_signal,
+)
 
 
 def process_price_data(asset_id: int):
     """
     Worker task:
     - Load recent price history
-    - Detect signals
+    - Detect signals (multi-signal)
+    - Prevent duplicate consecutive signals
     - Persist signals
 
     IMPORTANT:
     This worker MUST NOT call ingest_market_data().
-    That causes recursive jobs + API rate limiting.
     """
 
     db: Session = SessionLocal()
@@ -42,11 +45,11 @@ def process_price_data(asset_id: int):
             db.query(MarketPrice)
             .filter(MarketPrice.asset_id == asset_id)
             .order_by(MarketPrice.observed_at.desc())
-            .limit(10)
+            .limit(20)
             .all()
         )
 
-        # Convert to chronological order
+        # Convert to chronological order: oldest -> newest
         recent_prices = list(reversed(recent_prices))
 
         if len(recent_prices) < 2:
@@ -54,34 +57,41 @@ def process_price_data(asset_id: int):
             return
 
         # -----------------------------------
-        # 3. Detect signal
+        # 3. Detect signals
         # -----------------------------------
-        signal_data = detect_price_spike(
-            recent_prices,
-            threshold=Decimal("5.0")
-        )
+        signals = detect_signals(recent_prices)
 
-        if not signal_data:
-            print("[INFO] No signal detected")
+        if not signals:
+            print("[INFO] No signals detected")
             return
 
         # -----------------------------------
-        # 4. Persist signal
+        # 4. Get latest existing signal
         # -----------------------------------
-        create_signal(db, asset_id, signal_data)
+        latest_signal = (
+            db.query(MarketSignal)
+            .filter(MarketSignal.asset_id == asset_id)
+            .order_by(MarketSignal.detected_at.desc())
+            .first()
+        )
 
-        print(f"[SUCCESS] Signal created: {signal_data['signal_type']}")
+        # -----------------------------------
+        # 5. Persist signals with deduplication
+        # -----------------------------------
+        for signal_data in signals:
+            signal_type = signal_data["signal_type"]
 
-    # -----------------------------------
-    # DB Error Handling
-    # -----------------------------------
+            if latest_signal and latest_signal.signal_type == signal_type:
+                print(f"[SKIP] Duplicate consecutive signal: {signal_type}")
+                continue
+
+            create_signal(db, asset_id, signal_data)
+            print(f"[SUCCESS] Signal created: {signal_type}")
+
     except SQLAlchemyError as e:
         db.rollback()
         print(f"[DB ERROR] Asset {asset_id}: {e}")
 
-    # -----------------------------------
-    # Catch-All Error Handling
-    # -----------------------------------
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Asset {asset_id}: {e}")

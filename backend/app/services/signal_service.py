@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.models.market_price import MarketPrice
 from app.models.market_signal import MarketSignal
+from app.services.indicator_service import calculate_rsi
 
 
 # ---------------------------------------------------------
@@ -15,10 +16,6 @@ def calculate_price_change_percent(
     old_price: Decimal,
     new_price: Decimal
 ) -> Decimal:
-    """
-    Calculate percentage change between two prices.
-    """
-
     if old_price == 0:
         return Decimal("0")
 
@@ -26,18 +23,12 @@ def calculate_price_change_percent(
 
 
 # ---------------------------------------------------------
-# SIGNAL DETECTION (PURE LOGIC)
+# PRICE SPIKE SIGNAL
 # ---------------------------------------------------------
 def detect_price_spike(
     prices: List[MarketPrice],
     threshold: Decimal = Decimal("5.0")
 ) -> Optional[Dict[str, Any]]:
-    """
-    Detects a price spike based on percentage change.
-
-    Assumes:
-    - prices are ordered oldest → newest
-    """
 
     if len(prices) < 2:
         return None
@@ -49,7 +40,7 @@ def detect_price_spike(
 
     if percent_change >= threshold:
         return {
-            "signal_type": "price_spike",
+            "signal_type": "PRICE_SPIKE",
             "strength": percent_change,
             "metadata": {
                 "old_price": str(old_price),
@@ -63,6 +54,64 @@ def detect_price_spike(
 
 
 # ---------------------------------------------------------
+# RSI SIGNAL
+# ---------------------------------------------------------
+def detect_rsi_signal(
+    prices: List[MarketPrice],
+) -> Optional[Dict[str, Any]]:
+
+    rsi = calculate_rsi(prices)
+
+    if rsi is None:
+        return None
+
+    if rsi >= Decimal("70"):
+        return {
+            "signal_type": "RSI_OVERBOUGHT",
+            "strength": rsi,
+            "metadata": {
+                "rsi": float(rsi)
+            },
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    if rsi <= Decimal("30"):
+        return {
+            "signal_type": "RSI_OVERSOLD",
+            "strength": rsi,
+            "metadata": {
+                "rsi": float(rsi)
+            },
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    return None
+
+
+# ---------------------------------------------------------
+# MULTI-SIGNAL DETECTION (NEW)
+# ---------------------------------------------------------
+def detect_signals(
+    prices: List[MarketPrice]
+) -> List[Dict[str, Any]]:
+    """
+    Run ALL signal detectors and return list of signals
+    """
+
+    signals = []
+
+    price_spike = detect_price_spike(prices)
+    if price_spike:
+        signals.append(price_spike)
+
+    rsi_signal = detect_rsi_signal(prices)
+    if rsi_signal:
+        signals.append(rsi_signal)
+
+    return signals
+
+
+# ---------------------------------------------------------
 # PERSISTENCE LAYER (DB WRITE)
 # ---------------------------------------------------------
 def create_signal(
@@ -70,9 +119,6 @@ def create_signal(
     asset_id: int,
     signal_data: Dict[str, Any],
 ) -> MarketSignal:
-    """
-    Persist a detected signal into the database.
-    """
 
     signal = MarketSignal(
         asset_id=asset_id,

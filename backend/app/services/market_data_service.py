@@ -29,7 +29,7 @@ def ingest_market_data(db: Session, assets: list[str]):
         market_price = MarketPrice(
             asset_id=asset.id,
             price_usd=price,
-            observed_at=datetime.now(timezone.utc)  # modern + correct
+            observed_at=datetime.now(timezone.utc)
         )
 
         db.add(market_price)
