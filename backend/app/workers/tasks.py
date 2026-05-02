@@ -11,7 +11,7 @@ from app.services.signal_service import (
     create_signal,
 )
 
-from app.services.decision_service import generate_decision  # 🔥 NEW
+from app.services.decision_service import generate_decision, create_decision
 
 # Required for MA crossover (long_window + 1)
 MIN_REQUIRED_PRICES = 11
@@ -22,9 +22,9 @@ def process_price_data(asset_id: int):
     Worker task:
     - Load recent price history
     - Detect signals (multi-signal)
-    - Generate decision (NEW)
-    - Deduplicate signals (per type + tolerance)
-    - Persist signals
+    - Generate decision
+    - Persist decision (ALWAYS)
+    - Deduplicate + persist signals
     """
 
     db: Session = SessionLocal()
@@ -52,7 +52,6 @@ def process_price_data(asset_id: int):
             .all()
         )
 
-        # Convert to chronological order (oldest → newest)
         recent_prices = list(reversed(recent_prices))
 
         print(f"[DEBUG] Loaded {len(recent_prices)} prices")
@@ -72,19 +71,23 @@ def process_price_data(asset_id: int):
         if not signals:
             print("[INFO] No signals detected")
 
-            # 🔥 Even if no signals → still generate HOLD decision
             decision = generate_decision([])
+
             print(
                 f"[DECISION] {decision['decision']} "
                 f"(confidence={decision['confidence']}%, score={decision['score']})"
             )
+
+            # ✅ ALWAYS STORE DECISION
+            create_decision(db, asset_id, decision)
+            print("[SUCCESS] Decision stored")
 
             return
 
         print(f"[DEBUG] Detected signals: {[s['signal_type'] for s in signals]}")
 
         # -----------------------------------
-        # 4. Generate decision (🔥 NEW CORE FEATURE)
+        # 4. Generate decision
         # -----------------------------------
         decision = generate_decision(signals)
 
@@ -92,6 +95,10 @@ def process_price_data(asset_id: int):
             f"[DECISION] {decision['decision']} "
             f"(confidence={decision['confidence']}%, score={decision['score']})"
         )
+
+        # ✅ STORE DECISION FIRST (important)
+        create_decision(db, asset_id, decision)
+        print("[SUCCESS] Decision stored")
 
         # -----------------------------------
         # 5. Load recent signals (for dedup)
@@ -104,14 +111,13 @@ def process_price_data(asset_id: int):
             .all()
         )
 
-        # Build map: last signal per type
         last_signal_by_type = {}
         for s in recent_signals:
             if s.signal_type not in last_signal_by_type:
                 last_signal_by_type[s.signal_type] = s
 
         # -----------------------------------
-        # 6. Persist signals with smart dedup
+        # 6. Persist signals with dedup
         # -----------------------------------
         created_any = False
 
@@ -139,9 +145,6 @@ def process_price_data(asset_id: int):
                     print(f"[SKIP] Duplicate consecutive signal: {signal_type}")
                     continue
 
-            # -----------------------------------
-            # Create signal
-            # -----------------------------------
             create_signal(db, asset_id, signal_data)
             print(f"[SUCCESS] Signal created: {signal_type}")
             created_any = True
@@ -149,16 +152,10 @@ def process_price_data(asset_id: int):
         if not created_any:
             print("[INFO] All detected signals were duplicates")
 
-    # -----------------------------------
-    # DB Error Handling
-    # -----------------------------------
     except SQLAlchemyError as e:
         db.rollback()
         print(f"[DB ERROR] Asset {asset_id}: {e}")
 
-    # -----------------------------------
-    # Catch-All
-    # -----------------------------------
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Asset {asset_id}: {e}")

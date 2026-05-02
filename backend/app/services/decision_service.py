@@ -1,5 +1,7 @@
 from typing import List, Dict, Any
 
+from sqlalchemy.orm import Session
+
 from app.core.constants import (
     SIGNAL_WEIGHTS,
     BUY,
@@ -7,11 +9,13 @@ from app.core.constants import (
     HOLD,
 )
 
+from app.models.decision import Decision
 
+
+# ---------------------------------------------------------
+# SCORING
+# ---------------------------------------------------------
 def calculate_score(signals: List[Dict[str, Any]]) -> int:
-    """
-    Sum weighted signals into a total score.
-    """
     score = 0
 
     for signal in signals:
@@ -22,10 +26,10 @@ def calculate_score(signals: List[Dict[str, Any]]) -> int:
     return score
 
 
+# ---------------------------------------------------------
+# DECISION LOGIC
+# ---------------------------------------------------------
 def determine_decision(score: int) -> str:
-    """
-    Convert score into BUY / SELL / HOLD.
-    """
     if score >= 2:
         return BUY
     elif score <= -2:
@@ -33,19 +37,17 @@ def determine_decision(score: int) -> str:
     return HOLD
 
 
+# ---------------------------------------------------------
+# CONFIDENCE
+# ---------------------------------------------------------
 def calculate_confidence(score: int) -> int:
-    """
-    Convert score into confidence percentage (0–100).
-    """
-    # Simple normalization
-    confidence = min(abs(score) * 25, 100)
-    return confidence
+    return min(abs(score) * 25, 100)
 
 
+# ---------------------------------------------------------
+# MAIN GENERATOR
+# ---------------------------------------------------------
 def generate_decision(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """
-    Main entry point for decision engine.
-    """
     if not signals:
         return {
             "decision": HOLD,
@@ -64,3 +66,29 @@ def generate_decision(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         "score": score,
         "signals": [s["signal_type"] for s in signals],
     }
+
+
+# ---------------------------------------------------------
+# PERSISTENCE (🔥 NEW)
+# ---------------------------------------------------------
+def create_decision(
+    db: Session,
+    asset_id: int,
+    decision_data: Dict[str, Any],
+) -> Decision:
+
+    decision = Decision(
+        asset_id=asset_id,
+        decision=decision_data["decision"],
+        confidence=decision_data["confidence"],
+        score=decision_data["score"],
+        decision_metadata={
+            "signals": decision_data.get("signals", [])
+        },
+    )
+
+    db.add(decision)
+    db.commit()
+    db.refresh(decision)
+
+    return decision
