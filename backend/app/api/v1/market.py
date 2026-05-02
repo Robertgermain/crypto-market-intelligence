@@ -90,9 +90,6 @@ def get_prices(
     try:
         query = db.query(MarketPrice)
 
-        # -----------------------------
-        # Filtering
-        # -----------------------------
         if asset_id:
             query = query.filter(MarketPrice.asset_id == asset_id)
 
@@ -102,14 +99,8 @@ def get_prices(
         if end_date:
             query = query.filter(MarketPrice.observed_at <= end_date)
 
-        # -----------------------------
-        # Total count BEFORE pagination
-        # -----------------------------
         total = query.count()
 
-        # -----------------------------
-        # Pagination + Sorting
-        # -----------------------------
         prices = (
             query
             .order_by(MarketPrice.observed_at.desc())
@@ -181,9 +172,6 @@ def get_signals(
     try:
         query = db.query(MarketSignal)
 
-        # -----------------------------
-        # Filtering
-        # -----------------------------
         if asset_id:
             query = query.filter(MarketSignal.asset_id == asset_id)
 
@@ -193,14 +181,8 @@ def get_signals(
         if end_date:
             query = query.filter(MarketSignal.detected_at <= end_date)
 
-        # -----------------------------
-        # Total count
-        # -----------------------------
         total = query.count()
 
-        # -----------------------------
-        # Pagination + Sorting
-        # -----------------------------
         signals = (
             query
             .order_by(MarketSignal.detected_at.desc())
@@ -218,7 +200,7 @@ def get_signals(
                     "asset_id": s.asset_id,
                     "signal_type": s.signal_type,
                     "strength": float(s.strength),
-                    "metadata": s.meta_data,
+                    "metadata": s.signal_metadata,  # ✅ FIXED HERE
                     "detected_at": s.detected_at,
                 }
                 for s in signals

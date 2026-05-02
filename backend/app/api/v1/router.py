@@ -6,6 +6,6 @@ api_router = APIRouter()
 
 api_router.include_router(
     market_router,
-    prefix="/market",
+    prefix="/Market",
     tags=["Market"]
 )
