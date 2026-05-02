@@ -8,3 +8,4 @@ redis
 rq
 pytest
 pytest-asyncio
+requests
