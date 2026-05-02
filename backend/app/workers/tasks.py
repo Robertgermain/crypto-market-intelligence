@@ -11,17 +11,17 @@ from app.services.signal_service import (
     create_signal,
 )
 
+# Required for MA crossover (long_window + 1)
+MIN_REQUIRED_PRICES = 11
+
 
 def process_price_data(asset_id: int):
     """
     Worker task:
     - Load recent price history
     - Detect signals (multi-signal)
-    - Prevent duplicate consecutive signals
+    - Deduplicate signals (per type + tolerance)
     - Persist signals
-
-    IMPORTANT:
-    This worker MUST NOT call ingest_market_data().
     """
 
     db: Session = SessionLocal()
@@ -45,15 +45,20 @@ def process_price_data(asset_id: int):
             db.query(MarketPrice)
             .filter(MarketPrice.asset_id == asset_id)
             .order_by(MarketPrice.observed_at.desc())
-            .limit(20)
+            .limit(50)  # allow enough history for indicators
             .all()
         )
 
-        # Convert to chronological order: oldest -> newest
+        # Convert to chronological order (oldest → newest)
         recent_prices = list(reversed(recent_prices))
 
-        if len(recent_prices) < 2:
-            print("[WARN] Not enough data to detect signals")
+        print(f"[DEBUG] Loaded {len(recent_prices)} prices")
+
+        if len(recent_prices) < MIN_REQUIRED_PRICES:
+            print(
+                f"[WARN] Not enough data to detect signals "
+                f"({len(recent_prices)}/{MIN_REQUIRED_PRICES})"
+            )
             return
 
         # -----------------------------------
@@ -65,33 +70,75 @@ def process_price_data(asset_id: int):
             print("[INFO] No signals detected")
             return
 
+        print(f"[DEBUG] Detected signals: {[s['signal_type'] for s in signals]}")
+
         # -----------------------------------
-        # 4. Get latest existing signal
+        # 4. Load recent signals (for dedup)
         # -----------------------------------
-        latest_signal = (
+        recent_signals = (
             db.query(MarketSignal)
             .filter(MarketSignal.asset_id == asset_id)
             .order_by(MarketSignal.detected_at.desc())
-            .first()
+            .limit(10)
+            .all()
         )
 
+        # Build map: last signal per type
+        last_signal_by_type = {}
+        for s in recent_signals:
+            if s.signal_type not in last_signal_by_type:
+                last_signal_by_type[s.signal_type] = s
+
         # -----------------------------------
-        # 5. Persist signals with deduplication
+        # 5. Persist signals with smart dedup
         # -----------------------------------
+        created_any = False
+
         for signal_data in signals:
             signal_type = signal_data["signal_type"]
+            strength = signal_data.get("strength")
 
-            if latest_signal and latest_signal.signal_type == signal_type:
-                print(f"[SKIP] Duplicate consecutive signal: {signal_type}")
-                continue
+            prev = last_signal_by_type.get(signal_type)
 
+            if prev:
+                try:
+                    prev_strength = float(prev.strength)
+                    curr_strength = float(strength)
+
+                    delta = abs(curr_strength - prev_strength)
+
+                    if delta < 0.5:
+                        print(
+                            f"[SKIP] Duplicate signal (no meaningful change): "
+                            f"{signal_type}"
+                        )
+                        continue
+
+                except Exception:
+                    # fallback safety
+                    print(f"[SKIP] Duplicate consecutive signal: {signal_type}")
+                    continue
+
+            # -----------------------------------
+            # Create signal
+            # -----------------------------------
             create_signal(db, asset_id, signal_data)
             print(f"[SUCCESS] Signal created: {signal_type}")
+            created_any = True
 
+        if not created_any:
+            print("[INFO] All detected signals were duplicates")
+
+    # -----------------------------------
+    # DB Error Handling
+    # -----------------------------------
     except SQLAlchemyError as e:
         db.rollback()
         print(f"[DB ERROR] Asset {asset_id}: {e}")
 
+    # -----------------------------------
+    # Catch-All
+    # -----------------------------------
     except Exception as e:
         db.rollback()
         print(f"[ERROR] Asset {asset_id}: {e}")

@@ -8,6 +8,14 @@ from app.models.market_price import MarketPrice
 from app.models.market_signal import MarketSignal
 from app.services.indicator_service import calculate_rsi
 
+from app.core.constants import (
+    PRICE_SPIKE,
+    RSI_OVERBOUGHT,
+    RSI_OVERSOLD,
+    MA_BULLISH_CROSSOVER,
+    MA_BEARISH_CROSSOVER,
+)
+
 
 # ---------------------------------------------------------
 # CORE CALCULATION
@@ -23,7 +31,19 @@ def calculate_price_change_percent(
 
 
 # ---------------------------------------------------------
-# PRICE SPIKE SIGNAL
+# MOVING AVERAGE
+# ---------------------------------------------------------
+def calculate_moving_average(prices: List[MarketPrice], window: int):
+    if len(prices) < window:
+        return None
+
+    subset = prices[-window:]
+    total = sum(p.price_usd for p in subset)
+    return total / window
+
+
+# ---------------------------------------------------------
+# PRICE SPIKE
 # ---------------------------------------------------------
 def detect_price_spike(
     prices: List[MarketPrice],
@@ -40,7 +60,7 @@ def detect_price_spike(
 
     if percent_change >= threshold:
         return {
-            "signal_type": "PRICE_SPIKE",
+            "signal_type": PRICE_SPIKE,
             "strength": percent_change,
             "metadata": {
                 "old_price": str(old_price),
@@ -54,7 +74,7 @@ def detect_price_spike(
 
 
 # ---------------------------------------------------------
-# RSI SIGNAL
+# RSI
 # ---------------------------------------------------------
 def detect_rsi_signal(
     prices: List[MarketPrice],
@@ -67,20 +87,70 @@ def detect_rsi_signal(
 
     if rsi >= Decimal("70"):
         return {
-            "signal_type": "RSI_OVERBOUGHT",
+            "signal_type": RSI_OVERBOUGHT,
             "strength": rsi,
-            "metadata": {
-                "rsi": float(rsi)
-            },
+            "metadata": {"rsi": float(rsi)},
             "detected_at": datetime.now(timezone.utc),
         }
 
     if rsi <= Decimal("30"):
         return {
-            "signal_type": "RSI_OVERSOLD",
+            "signal_type": RSI_OVERSOLD,
             "strength": rsi,
+            "metadata": {"rsi": float(rsi)},
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    return None
+
+
+# ---------------------------------------------------------
+# FIXED MA CROSSOVER
+# ---------------------------------------------------------
+def detect_ma_crossover(
+    prices: List[MarketPrice]
+) -> Optional[Dict[str, Any]]:
+
+    SHORT_WINDOW = 5
+    LONG_WINDOW = 10
+
+    # 🔥 FIX: need LONG + 1 for previous comparison
+    if len(prices) < LONG_WINDOW + 1:
+        return None
+
+    short_prev = calculate_moving_average(prices[:-1], SHORT_WINDOW)
+    long_prev = calculate_moving_average(prices[:-1], LONG_WINDOW)
+
+    short_curr = calculate_moving_average(prices, SHORT_WINDOW)
+    long_curr = calculate_moving_average(prices, LONG_WINDOW)
+
+    if not all([short_prev, long_prev, short_curr, long_curr]):
+        return None
+
+    # Bullish crossover
+    if short_prev <= long_prev and short_curr > long_curr:
+        return {
+            "signal_type": MA_BULLISH_CROSSOVER,
+            "strength": short_curr - long_curr,
             "metadata": {
-                "rsi": float(rsi)
+                "short_ma": str(short_curr),
+                "long_ma": str(long_curr),
+                "prev_short_ma": str(short_prev),
+                "prev_long_ma": str(long_prev),
+            },
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    # Bearish crossover
+    if short_prev >= long_prev and short_curr < long_curr:
+        return {
+            "signal_type": MA_BEARISH_CROSSOVER,
+            "strength": long_curr - short_curr,
+            "metadata": {
+                "short_ma": str(short_curr),
+                "long_ma": str(long_curr),
+                "prev_short_ma": str(short_prev),
+                "prev_long_ma": str(long_prev),
             },
             "detected_at": datetime.now(timezone.utc),
         }
@@ -89,30 +159,34 @@ def detect_rsi_signal(
 
 
 # ---------------------------------------------------------
-# MULTI-SIGNAL DETECTION (NEW)
+# MULTI SIGNAL (PRIORITIZED)
 # ---------------------------------------------------------
 def detect_signals(
     prices: List[MarketPrice]
 ) -> List[Dict[str, Any]]:
-    """
-    Run ALL signal detectors and return list of signals
-    """
 
     signals = []
 
-    price_spike = detect_price_spike(prices)
-    if price_spike:
-        signals.append(price_spike)
+    # 1. MA crossover FIRST (most important)
+    ma_signal = detect_ma_crossover(prices)
+    if ma_signal:
+        signals.append(ma_signal)
 
+    # 2. RSI
     rsi_signal = detect_rsi_signal(prices)
     if rsi_signal:
         signals.append(rsi_signal)
+
+    # 3. Spike LAST (least important)
+    price_spike = detect_price_spike(prices)
+    if price_spike:
+        signals.append(price_spike)
 
     return signals
 
 
 # ---------------------------------------------------------
-# PERSISTENCE LAYER (DB WRITE)
+# PERSISTENCE
 # ---------------------------------------------------------
 def create_signal(
     db: Session,
