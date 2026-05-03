@@ -6,16 +6,17 @@ from app.schemas.market import PaginationMeta
 
 
 # --------------------------------------------------
-# SIGNAL SCHEMA
+# DECISION SCHEMA
 # --------------------------------------------------
-class SignalData(BaseModel):
+class DecisionData(BaseModel):
     id: int
     asset_id: int
     symbol: str
-    signal_type: str
-    strength: float
+    decision: str
+    confidence: int
+    score: int
     metadata: Optional[Dict[str, Any]]
-    detected_at: datetime
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -24,8 +25,8 @@ class SignalData(BaseModel):
 # --------------------------------------------------
 # RESPONSE WRAPPER
 # --------------------------------------------------
-class SignalsResponse(BaseModel):
+class DecisionsResponse(BaseModel):
     status: str
     message: str
-    data: List[SignalData]
+    data: List[DecisionData]
     pagination: PaginationMeta

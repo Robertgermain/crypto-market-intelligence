@@ -9,6 +9,7 @@ from app.deps import get_db
 from app.services.market_data_service import ingest_market_data
 from app.models.market_price import MarketPrice
 from app.models.market_signal import MarketSignal
+from app.models.asset import Asset
 from app.schemas.market import PricesResponse, SignalsResponse
 
 router = APIRouter()
@@ -22,9 +23,6 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
 )
 def ingest_data(db: Session = Depends(get_db)):
-    """
-    Trigger market data ingestion
-    """
     try:
         result = ingest_market_data(db, ["bitcoin", "ethereum"])
 
@@ -84,11 +82,11 @@ def get_prices(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
 ):
-    """
-    Retrieve market prices with pagination and filtering
-    """
     try:
-        query = db.query(MarketPrice)
+        query = (
+            db.query(MarketPrice, Asset)
+            .join(Asset, MarketPrice.asset_id == Asset.id)
+        )
 
         if asset_id:
             query = query.filter(MarketPrice.asset_id == asset_id)
@@ -116,10 +114,11 @@ def get_prices(
                 {
                     "id": p.id,
                     "asset_id": p.asset_id,
+                    "symbol": a.symbol,
                     "price_usd": float(p.price_usd),
                     "observed_at": p.observed_at,
                 }
-                for p in prices
+                for p, a in prices
             ],
             "pagination": {
                 "total": total,
@@ -151,7 +150,7 @@ def get_prices(
 
 
 # --------------------------------------------------
-# GET: Market Signals (WITH PAGINATION + FILTERS)
+# GET: Market Signals (UNCHANGED)
 # --------------------------------------------------
 @router.get(
     "/signals",
@@ -166,9 +165,6 @@ def get_signals(
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
 ):
-    """
-    Retrieve market signals with pagination and filtering
-    """
     try:
         query = db.query(MarketSignal)
 
@@ -200,7 +196,7 @@ def get_signals(
                     "asset_id": s.asset_id,
                     "signal_type": s.signal_type,
                     "strength": float(s.strength),
-                    "metadata": s.signal_metadata,  # ✅ FIXED HERE
+                    "metadata": s.signal_metadata,
                     "detected_at": s.detected_at,
                 }
                 for s in signals

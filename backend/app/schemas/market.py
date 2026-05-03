@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel
 
@@ -10,11 +10,12 @@ from pydantic import BaseModel
 class MarketPriceResponse(BaseModel):
     id: int
     asset_id: int
+    symbol: str
     price_usd: float
     observed_at: datetime
 
     class Config:
-        from_attributes = True  # SQLAlchemy compatibility
+        from_attributes = True
 
 
 # --------------------------------------------------
@@ -25,7 +26,7 @@ class MarketSignalResponse(BaseModel):
     asset_id: int
     signal_type: str
     strength: float
-    metadata: Optional[dict]
+    metadata: Optional[Dict[str, Any]]
     detected_at: datetime
 
     class Config:
