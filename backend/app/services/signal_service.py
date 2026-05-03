@@ -53,16 +53,19 @@ def detect_price_spike(
     if len(prices) < 2:
         return None
 
-    old_price = prices[0].price_usd
+    old_price = prices[-2].price_usd
     new_price = prices[-1].price_usd
 
     percent_change = calculate_price_change_percent(old_price, new_price)
 
-    if percent_change >= threshold:
+    abs_change = abs(percent_change)
+
+    if abs_change >= threshold:
         return {
             "signal_type": PRICE_SPIKE,
-            "strength": percent_change,
+            "strength": abs_change,  # always positive magnitude
             "metadata": {
+                "direction": "UP" if percent_change > 0 else "DOWN",
                 "old_price": str(old_price),
                 "new_price": str(new_price),
                 "percent_change": str(percent_change),
@@ -164,6 +167,7 @@ def detect_signals(
 
     signals = []
 
+    # Priority order matters
     ma_signal = detect_ma_crossover(prices)
     if ma_signal:
         signals.append(ma_signal)
@@ -188,12 +192,11 @@ def create_signal(
     signal_data: Dict[str, Any],
 ) -> MarketSignal:
 
-    # Ensure detected_at always exists
     detected_at = signal_data.get("detected_at") or datetime.now(timezone.utc)
 
     signal = MarketSignal(
         asset_id=asset_id,
-        decision_id=signal_data.get("decision_id"),  # 🔥 CRITICAL FIX
+        decision_id=signal_data.get("decision_id"),
         signal_type=signal_data["signal_type"],
         strength=signal_data["strength"],
         signal_metadata=signal_data.get("metadata"),

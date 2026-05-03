@@ -13,6 +13,21 @@ from app.schemas.decision import DecisionsResponse
 router = APIRouter(prefix="/api/v1/decisions", tags=["Decisions"])
 
 
+def clean_metadata(metadata: Optional[dict]) -> dict:
+    """
+    Remove legacy / null fields and ensure clean structure
+    """
+    if not metadata:
+        return {}
+
+    return {
+        "signals": metadata.get("signals", []),
+        "signal_count": metadata.get("signal_count", 0),
+        "generated_at": metadata.get("generated_at"),
+        "explanation": metadata.get("explanation"),
+    }
+
+
 @router.get(
     "/",
     response_model=DecisionsResponse,
@@ -63,27 +78,34 @@ def get_decisions(
             .all()
         )
 
+        # -----------------------------
+        # Response formatting
+        # -----------------------------
+        data = []
+
+        for d, a in decisions:
+            cleaned_metadata = clean_metadata(d.decision_metadata)
+
+            data.append({
+                "id": d.id,
+                "asset_id": d.asset_id,
+                "symbol": a.symbol,
+                "decision": d.decision,
+                "confidence": d.confidence,
+                "score": d.score,
+                "metadata": cleaned_metadata,
+                "created_at": d.created_at,
+            })
+
         return {
             "status": "success",
             "message": "Decisions retrieved successfully",
-            "data": [
-                {
-                    "id": d.id,
-                    "asset_id": d.asset_id,
-                    "symbol": a.symbol,
-                    "decision": d.decision,
-                    "confidence": d.confidence,
-                    "score": d.score,
-                    "metadata": d.decision_metadata,
-                    "created_at": d.created_at,
-                }
-                for d, a in decisions
-            ],
+            "data": data,
             "pagination": {
                 "total": total,
                 "limit": limit,
                 "offset": offset,
-                "returned": len(decisions),
+                "returned": len(data),
             }
         }
 
