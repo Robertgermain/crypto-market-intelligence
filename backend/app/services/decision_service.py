@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.services.ai_service import generate_decision_explanation
+from app.services.ai_service import (
+    generate_decision_explanation,
+    generate_confidence_adjustment,  # 🔥 NEW
+)
 from app.models.asset import Asset
 from app.models.decision import Decision
 
@@ -41,7 +44,7 @@ def determine_decision(score: int) -> str:
 
 
 # ---------------------------------------------------------
-# CONFIDENCE
+# CONFIDENCE (BASE)
 # ---------------------------------------------------------
 def calculate_confidence(score: int) -> int:
     return min(abs(score) * 25, 100)
@@ -65,14 +68,14 @@ def generate_decision(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "decision": decision,
-        "confidence": confidence,
+        "confidence": confidence,  # base confidence (AI will adjust later)
         "score": score,
-        "signals": signals,  # ✅ FULL SIGNAL DATA (not just types)
+        "signals": signals,  # FULL signal data
     }
 
 
 # ---------------------------------------------------------
-# PERSISTENCE (WITH DATA-AWARE AI)
+# PERSISTENCE (WITH AI LAYER)
 # ---------------------------------------------------------
 def create_decision(
     db: Session,
@@ -89,21 +92,41 @@ def create_decision(
     symbol = asset.symbol if asset else "UNKNOWN"
 
     # -----------------------------------
-    # Extract signal types for metadata
+    # Extract signal types
     # -----------------------------------
     signal_types = [s.get("signal_type") for s in signals]
 
     # -----------------------------------
-    # Generate AI explanation (DATA-AWARE)
+    # 🔥 AI CONFIDENCE ADJUSTMENT
+    # -----------------------------------
+    base_confidence = decision_data["confidence"]
+
+    if signals:
+        try:
+            adjusted_confidence = generate_confidence_adjustment(
+                asset_symbol=symbol,
+                decision=decision_data["decision"],
+                base_confidence=base_confidence,
+                signals=signal_types,
+                signal_data=signals,
+            )
+        except Exception as e:
+            print(f"[AI ERROR] Confidence adjustment failed: {e}")
+            adjusted_confidence = base_confidence
+    else:
+        adjusted_confidence = 0  # no signals → no confidence
+
+    # -----------------------------------
+    #  AI EXPLANATION
     # -----------------------------------
     if signals:
         try:
             explanation = generate_decision_explanation(
                 asset_symbol=symbol,
                 decision=decision_data["decision"],
-                confidence=decision_data["confidence"],
-                signals=signal_types,        # simple list
-                signal_data=signals,         # FULL DATA
+                confidence=adjusted_confidence,  # use adjusted value
+                signals=signal_types,
+                signal_data=signals,
             )
         except Exception as e:
             print(f"[AI ERROR] Failed to generate explanation: {e}")
@@ -115,12 +138,12 @@ def create_decision(
         )
 
     # -----------------------------------
-    # Create decision (CLEAN METADATA)
+    # Create decision
     # -----------------------------------
     decision = Decision(
         asset_id=asset_id,
         decision=decision_data["decision"],
-        confidence=decision_data["confidence"],
+        confidence=adjusted_confidence,  #  USE AI VALUE
         score=decision_data["score"],
         decision_metadata={
             "signals": signal_types,
