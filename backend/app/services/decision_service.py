@@ -5,59 +5,74 @@ from sqlalchemy.orm import Session
 
 from app.services.ai_service import (
     generate_decision_explanation,
-    generate_confidence_adjustment,  # 🔥 NEW
+    generate_confidence_adjustment,
 )
 from app.models.asset import Asset
 from app.models.decision import Decision
 
-from app.core.constants import (
-    SIGNAL_WEIGHTS,
-    BUY,
-    SELL,
-    HOLD,
-)
+from app.core.constants import BUY, SELL, HOLD
 
 
-# ---------------------------------------------------------
-# SCORING
-# ---------------------------------------------------------
+# =========================================================
+# SIMPLE WEIGHTS (EASY TO UNDERSTAND)
+# =========================================================
+SIGNAL_WEIGHTS = {
+    "RSI_OVERBOUGHT": -1,
+    "RSI_OVERSOLD": 1,
+    "MOMENTUM_UP": 2,
+    "MOMENTUM_DOWN": -2,
+    "MA_BULLISH_CROSSOVER": 2,
+    "MA_BEARISH_CROSSOVER": -2,
+}
+
+
+# =========================================================
+# SCORING (SIMPLE)
+# =========================================================
 def calculate_score(signals: List[Dict[str, Any]]) -> int:
     score = 0
 
     for signal in signals:
         signal_type = signal.get("signal_type")
-        weight = SIGNAL_WEIGHTS.get(signal_type, 0)
-        score += weight
+        score += SIGNAL_WEIGHTS.get(signal_type, 0)
 
     return score
 
 
-# ---------------------------------------------------------
-# DECISION LOGIC
-# ---------------------------------------------------------
+# =========================================================
+# DECISION LOGIC (LOOSENED)
+# =========================================================
 def determine_decision(score: int) -> str:
     if score >= 2:
         return BUY
-    elif score <= -2:
+
+    if score <= -2:
         return SELL
+
     return HOLD
 
 
-# ---------------------------------------------------------
-# CONFIDENCE (BASE)
-# ---------------------------------------------------------
+# =========================================================
+# CONFIDENCE (CLEAN + CONSISTENT)
+# =========================================================
 def calculate_confidence(score: int) -> int:
-    return min(abs(score) * 25, 100)
+    base = abs(score) * 25
+
+    if base == 0:
+        return 20  # no more 0% confidence
+
+    return min(base, 100)
 
 
-# ---------------------------------------------------------
+# =========================================================
 # MAIN GENERATOR
-# ---------------------------------------------------------
+# =========================================================
 def generate_decision(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
+
     if not signals:
         return {
             "decision": HOLD,
-            "confidence": 0,
+            "confidence": 20,
             "score": 0,
             "signals": [],
         }
@@ -68,15 +83,15 @@ def generate_decision(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     return {
         "decision": decision,
-        "confidence": confidence,  # base confidence (AI will adjust later)
+        "confidence": confidence,
         "score": score,
-        "signals": signals,  # FULL signal data
+        "signals": signals,
     }
 
 
-# ---------------------------------------------------------
-# PERSISTENCE (WITH AI LAYER)
-# ---------------------------------------------------------
+# =========================================================
+# PERSISTENCE (KEEP AI — THIS IS YOUR EDGE)
+# =========================================================
 def create_decision(
     db: Session,
     asset_id: int,
@@ -85,65 +100,62 @@ def create_decision(
 
     signals = decision_data.get("signals", []) or []
 
-    # -----------------------------------
-    # Get asset symbol
-    # -----------------------------------
     asset = db.query(Asset).filter(Asset.id == asset_id).first()
     symbol = asset.symbol if asset else "UNKNOWN"
 
-    # -----------------------------------
-    # Extract signal types
-    # -----------------------------------
     signal_types = [s.get("signal_type") for s in signals]
 
-    # -----------------------------------
-    # 🔥 AI CONFIDENCE ADJUSTMENT
-    # -----------------------------------
     base_confidence = decision_data["confidence"]
+
+    # -----------------------------------
+    # AI CONFIDENCE (LIGHT TOUCH)
+    # -----------------------------------
+    adjusted_confidence = base_confidence
 
     if signals:
         try:
-            adjusted_confidence = generate_confidence_adjustment(
+            ai_conf = generate_confidence_adjustment(
                 asset_symbol=symbol,
                 decision=decision_data["decision"],
                 base_confidence=base_confidence,
                 signals=signal_types,
                 signal_data=signals,
             )
+
+            # Clamp slightly (don’t let AI go crazy)
+            adjusted_confidence = max(
+                base_confidence - 15,
+                min(ai_conf, base_confidence + 15)
+            )
+
         except Exception as e:
             print(f"[AI ERROR] Confidence adjustment failed: {e}")
-            adjusted_confidence = base_confidence
-    else:
-        adjusted_confidence = 0  # no signals → no confidence
 
     # -----------------------------------
-    #  AI EXPLANATION
+    # AI EXPLANATION (KEEP THIS)
     # -----------------------------------
     if signals:
         try:
             explanation = generate_decision_explanation(
                 asset_symbol=symbol,
                 decision=decision_data["decision"],
-                confidence=adjusted_confidence,  # use adjusted value
+                confidence=adjusted_confidence,
                 signals=signal_types,
                 signal_data=signals,
             )
         except Exception as e:
-            print(f"[AI ERROR] Failed to generate explanation: {e}")
+            print(f"[AI ERROR] Failed explanation: {e}")
             explanation = "AI explanation unavailable."
     else:
-        explanation = (
-            "No significant signals detected. "
-            "HOLD decision based on neutral market conditions."
-        )
+        explanation = "No signals detected. HOLD."
 
     # -----------------------------------
-    # Create decision
+    # SAVE
     # -----------------------------------
     decision = Decision(
         asset_id=asset_id,
         decision=decision_data["decision"],
-        confidence=adjusted_confidence,  #  USE AI VALUE
+        confidence=adjusted_confidence,
         score=decision_data["score"],
         decision_metadata={
             "signals": signal_types,

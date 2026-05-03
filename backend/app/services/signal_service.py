@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
+from statistics import stdev
 
 from sqlalchemy.orm import Session
 
@@ -15,7 +16,6 @@ from app.core.constants import (
     MA_BULLISH_CROSSOVER,
     MA_BEARISH_CROSSOVER,
 )
-
 
 # ---------------------------------------------------------
 # CORE CALCULATION
@@ -57,13 +57,12 @@ def detect_price_spike(
     new_price = prices[-1].price_usd
 
     percent_change = calculate_price_change_percent(old_price, new_price)
-
     abs_change = abs(percent_change)
 
     if abs_change >= threshold:
         return {
             "signal_type": PRICE_SPIKE,
-            "strength": abs_change,  # always positive magnitude
+            "strength": abs_change,
             "metadata": {
                 "direction": "UP" if percent_change > 0 else "DOWN",
                 "old_price": str(old_price),
@@ -136,8 +135,6 @@ def detect_ma_crossover(
             "metadata": {
                 "short_ma": str(short_curr),
                 "long_ma": str(long_curr),
-                "prev_short_ma": str(short_prev),
-                "prev_long_ma": str(long_prev),
             },
             "detected_at": datetime.now(timezone.utc),
         }
@@ -149,8 +146,6 @@ def detect_ma_crossover(
             "metadata": {
                 "short_ma": str(short_curr),
                 "long_ma": str(long_curr),
-                "prev_short_ma": str(short_prev),
-                "prev_long_ma": str(long_prev),
             },
             "detected_at": datetime.now(timezone.utc),
         }
@@ -159,7 +154,68 @@ def detect_ma_crossover(
 
 
 # ---------------------------------------------------------
-# MULTI SIGNAL
+# 🔥 MOMENTUM SIGNAL (NEW)
+# ---------------------------------------------------------
+def detect_momentum(
+    prices: List[MarketPrice],
+    threshold: Decimal = Decimal("1.0")
+) -> Optional[Dict[str, Any]]:
+
+    if len(prices) < 2:
+        return None
+
+    old_price = prices[-2].price_usd
+    new_price = prices[-1].price_usd
+
+    percent_change = calculate_price_change_percent(old_price, new_price)
+
+    if percent_change >= threshold:
+        return {
+            "signal_type": "MOMENTUM_UP",
+            "strength": percent_change,
+            "metadata": {"change_percent": str(percent_change)},
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    if percent_change <= -threshold:
+        return {
+            "signal_type": "MOMENTUM_DOWN",
+            "strength": abs(percent_change),
+            "metadata": {"change_percent": str(percent_change)},
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    return None
+
+
+# ---------------------------------------------------------
+# 🔥 VOLATILITY SIGNAL (NEW)
+# ---------------------------------------------------------
+def detect_volatility(
+    prices: List[MarketPrice],
+) -> Optional[Dict[str, Any]]:
+
+    if len(prices) < 10:
+        return None
+
+    values = [float(p.price_usd) for p in prices[-10:]]
+    volatility = stdev(values)
+
+    last_price = float(prices[-1].price_usd)
+
+    if volatility > last_price * 0.01:  # 1% volatility
+        return {
+            "signal_type": "VOLATILITY_SPIKE",
+            "strength": Decimal(str(volatility)),
+            "metadata": {"volatility": volatility},
+            "detected_at": datetime.now(timezone.utc),
+        }
+
+    return None
+
+
+# ---------------------------------------------------------
+# 🔥 MULTI SIGNAL ENGINE (UPDATED)
 # ---------------------------------------------------------
 def detect_signals(
     prices: List[MarketPrice]
@@ -167,18 +223,25 @@ def detect_signals(
 
     signals = []
 
+    if len(prices) < 5:
+        return signals
+
     # Priority order matters
-    ma_signal = detect_ma_crossover(prices)
-    if ma_signal:
-        signals.append(ma_signal)
+    detectors = [
+        detect_ma_crossover,
+        detect_rsi_signal,
+        detect_price_spike,
+        detect_momentum,
+        detect_volatility,
+    ]
 
-    rsi_signal = detect_rsi_signal(prices)
-    if rsi_signal:
-        signals.append(rsi_signal)
-
-    price_spike = detect_price_spike(prices)
-    if price_spike:
-        signals.append(price_spike)
+    for detector in detectors:
+        try:
+            result = detector(prices)
+            if result:
+                signals.append(result)
+        except Exception as e:
+            print(f"[SIGNAL ERROR] {detector.__name__}: {e}")
 
     return signals
 
