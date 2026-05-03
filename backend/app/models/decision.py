@@ -35,7 +35,7 @@ class Decision(Base):
     decision_metadata = Column(
         JSON,
         nullable=True
-    )  # store signals used + future inputs
+    )
 
     created_at = Column(
         DateTime(timezone=True),
@@ -50,10 +50,10 @@ class Decision(Base):
     signals = relationship(
         "MarketSignal",
         back_populates="decision",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        foreign_keys="MarketSignal.decision_id",
     )
 
-    # Optional (nice to have for future)
     asset = relationship("Asset")
 
     # -----------------------------

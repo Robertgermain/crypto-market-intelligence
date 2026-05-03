@@ -60,7 +60,8 @@ class MarketSignal(Base):
 
     decision = relationship(
         "Decision",
-        back_populates="signals"
+        back_populates="signals",
+        foreign_keys=[decision_id],
     )
 
     # -----------------------------

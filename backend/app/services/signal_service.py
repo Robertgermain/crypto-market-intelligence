@@ -105,7 +105,7 @@ def detect_rsi_signal(
 
 
 # ---------------------------------------------------------
-# FIXED MA CROSSOVER
+# MA CROSSOVER
 # ---------------------------------------------------------
 def detect_ma_crossover(
     prices: List[MarketPrice]
@@ -114,7 +114,6 @@ def detect_ma_crossover(
     SHORT_WINDOW = 5
     LONG_WINDOW = 10
 
-    # 🔥 FIX: need LONG + 1 for previous comparison
     if len(prices) < LONG_WINDOW + 1:
         return None
 
@@ -127,7 +126,6 @@ def detect_ma_crossover(
     if not all([short_prev, long_prev, short_curr, long_curr]):
         return None
 
-    # Bullish crossover
     if short_prev <= long_prev and short_curr > long_curr:
         return {
             "signal_type": MA_BULLISH_CROSSOVER,
@@ -141,7 +139,6 @@ def detect_ma_crossover(
             "detected_at": datetime.now(timezone.utc),
         }
 
-    # Bearish crossover
     if short_prev >= long_prev and short_curr < long_curr:
         return {
             "signal_type": MA_BEARISH_CROSSOVER,
@@ -159,7 +156,7 @@ def detect_ma_crossover(
 
 
 # ---------------------------------------------------------
-# MULTI SIGNAL (PRIORITIZED)
+# MULTI SIGNAL
 # ---------------------------------------------------------
 def detect_signals(
     prices: List[MarketPrice]
@@ -167,17 +164,14 @@ def detect_signals(
 
     signals = []
 
-    # 1. MA crossover FIRST (most important)
     ma_signal = detect_ma_crossover(prices)
     if ma_signal:
         signals.append(ma_signal)
 
-    # 2. RSI
     rsi_signal = detect_rsi_signal(prices)
     if rsi_signal:
         signals.append(rsi_signal)
 
-    # 3. Spike LAST (least important)
     price_spike = detect_price_spike(prices)
     if price_spike:
         signals.append(price_spike)
@@ -194,12 +188,16 @@ def create_signal(
     signal_data: Dict[str, Any],
 ) -> MarketSignal:
 
+    # Ensure detected_at always exists
+    detected_at = signal_data.get("detected_at") or datetime.now(timezone.utc)
+
     signal = MarketSignal(
         asset_id=asset_id,
+        decision_id=signal_data.get("decision_id"),  # 🔥 CRITICAL FIX
         signal_type=signal_data["signal_type"],
         strength=signal_data["strength"],
         signal_metadata=signal_data.get("metadata"),
-        detected_at=signal_data.get("detected_at"),
+        detected_at=detected_at,
     )
 
     db.add(signal)

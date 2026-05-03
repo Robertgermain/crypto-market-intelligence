@@ -1,4 +1,5 @@
 from typing import List, Dict, Any
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -69,13 +70,16 @@ def generate_decision(signals: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------
-# PERSISTENCE (🔥 NEW)
+# PERSISTENCE
 # ---------------------------------------------------------
+
 def create_decision(
     db: Session,
     asset_id: int,
     decision_data: Dict[str, Any],
 ) -> Decision:
+
+    signals = decision_data.get("signals", [])
 
     decision = Decision(
         asset_id=asset_id,
@@ -83,7 +87,12 @@ def create_decision(
         confidence=decision_data["confidence"],
         score=decision_data["score"],
         decision_metadata={
-            "signals": decision_data.get("signals", [])
+            "decision": decision_data["decision"],
+            "confidence": decision_data["confidence"],
+            "score": decision_data["score"],
+            "signals": signals,
+            "signal_count": len(signals),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
         },
     )
 
